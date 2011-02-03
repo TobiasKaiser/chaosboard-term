@@ -36,6 +36,10 @@ class Terminal:
         os.write(self.master, chr(3))
         return signal.SIG_IGN
     def __init__(self):
+
+        self.visual_cursor=["_", 7]
+
+
         signal.signal(signal.SIGINT, self.signal_handler)
         self.cursor_blink_interval=0.5
         self.cursor_blink_state=0 
@@ -85,17 +89,22 @@ class Terminal:
         self.transmitted_display=gendisplay()
         self.cursor_visible=True
         self.scroll_range=[0, board.DSP_HEIGHT-1]
-        #self.board.set_luminance(0)
+        self.board.clear();
+        self.board.set_luminance(0)
+
 
     def delta_transmit(self):
+        self.delta_transmit_old()
+
+    def delta_transmit_old(self):
         try:
             for i in range(board.DSP_HEIGHT):
                 for j in range(board.DSP_WIDTH):
                     t = self.transmitted_display[i][j]
                     n = self.display[i][j]
-                    #if t[1]!=n[1]:
-                    #    #self.board.display_luminance([[n[1]]], x=j, y=i)
-                    #    t[1]=n[1]
+                    if t[1]!=n[1]:
+                        self.board.display_luminance([[n[1]]], x=j, y=i)
+                        t[1]=n[1]
                     if t[0]!=n[0]:
                         self.board.display_chars([[n[0]]], x=j, y=i)
                         t[0]=n[0]
@@ -131,7 +140,10 @@ class Terminal:
     
     def clear_line(self):
         for i in range(board.DSP_WIDTH-self.cursor[0]):
-            self.display[self.cursor[1]][self.cursor[0]+i]=[" ", board.LUM_MAX]
+            try:
+                self.display[self.cursor[1]][self.cursor[0]+i]=[" ", board.LUM_MAX]
+            except:
+                pass
     
     def clear_downwards(self):
         self.clear_line()
@@ -153,22 +165,22 @@ class Terminal:
         elif 30<=key<=37:
             col=key-30
             if col==7: # white
-                self.style_lum=board.LUM_MAX
+                self.style_lum=7
             elif col==6:
-                self.style_lum=5
+                self.style_lum=3
             elif col==5:
-                self.style_lum=4
+                self.style_lum=3
             elif col==4:
                 self.style_lum=3
             elif col==3:
-                self.style_lum=2
+                self.style_lum=3
             elif col==2:
-                self.style_lum=1
+                self.style_lum=3
             elif col==1:
-                self.style_lum=0
+                self.style_lum=3
             else:
                 print "broop", col
-                self.style_lum=col
+                self.style_lum=7
             self.style_lum=15
         else:
             print "UNHANDLED", key
@@ -177,7 +189,7 @@ class Terminal:
         # append new line
         l=[]
         for i in range(board.DSP_WIDTH):
-            l.append([" ", board.LUM_MAX])
+            l.append([" ", 0])
         #self.display.append(l)
         self.display.pop(self.scroll_range[1])
         self.display.insert(self.scroll_range[0], l)
@@ -242,14 +254,14 @@ class Terminal:
             if len(arg)==0:
                 self.cursor=[0,0]
             else:
-                y,x=arg.split(";")
-                if x=="" and y=="":
-                    self.cursor=[0,0]
-                else:
-                    try:
+                try:
+                    y,x=arg.split(";")
+                    if x=="" and y=="":
+                        self.cursor=[0,0]
+                    else:
                         self.cursor=[int(x)-1, int(y)-1]
-                    except:
-                        pass
+                except:
+                    pass
         elif cmd=="J": # clear
             i=0
             if arg!="":
@@ -273,9 +285,12 @@ class Terminal:
     def char_processor(self, char):
         if self.multichar_buffer=="":
             if char in PRINTABLE_CHARS:
-                self.display[self.cursor[1]][self.cursor[0]]= \
-                    [char, self.style_lum]
-                self.cursor_incr()
+                try:
+                    self.display[self.cursor[1]][self.cursor[0]]= \
+                        [char, self.style_lum]
+                    self.cursor_incr()
+                except:
+                    pass
             elif ord(char)==ANSI_ESC:
                 self.multichar_buffer+=char
             elif ord(char) == ANSI_CARRIAGE_RETURN:
@@ -287,7 +302,7 @@ class Terminal:
                 self.new_line()
             elif ord(char) == ANSI_BACKSPACE:
                 self.cursor[0]-=1
-                self.display[self.cursor[1]][self.cursor[0]]=[" ", board.LUM_MAX]
+                self.display[self.cursor[1]][self.cursor[0]]=[" ", 0]
             else:
                 print "Unhandled character code:", ord(char)
             self.delta_transmit()
@@ -306,9 +321,9 @@ class Terminal:
         if not self.cursor_visible:
             return
         if self.cursor_blink_state==1:
-            self.board.display([[["_", board.LUM_MAX]]], self.cursor[0], self.cursor[1])
+            self.board.display([[, self.cursor[0], self.cursor[1])
             self.transmitted_display[self.cursor[1]][self.cursor[0]]=["_",
-                board.LUM_MAX]
+                7]
         else:
             self.delta_transmit()
 
@@ -329,6 +344,7 @@ class Terminal:
                 #sys.exit(0)
             if rl==[]: # and time.time()-self.last_blink>self.cursor_blink_interval:
                 self.last_blink=time.time()
+                print "DELTA TRANSMISSION!"
                 self.delta_transmit()
                 if self.cursor_blink_state==0:
                     self.cursor_blink_state=1
