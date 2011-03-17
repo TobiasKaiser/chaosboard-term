@@ -51,12 +51,6 @@ class Terminal:
 
         self.term = os.fdopen(self.master, "r", 0)
 
-        # setup local
-        attr = termios.tcgetattr(sys.stdin)
-        attr[3] &= ~( termios.ICANON | termios.ECHO )
-        termios.tcsetattr(sys.stdin, termios.TCSANOW, attr)
-
-
         # setup remote side
         fcntl.ioctl(self.master, termios.TIOCSWINSZ,
             struct.pack("hhhh", board.DSP_HEIGHT, board.DSP_WIDTH, 0, 0))
@@ -96,19 +90,16 @@ class Terminal:
         self.delta_transmit_old()
 
     def delta_transmit_old(self):
-        try:
-            for i in range(board.DSP_HEIGHT):
-                for j in range(board.DSP_WIDTH):
-                    t = self.transmitted_display[i][j]
-                    n = self.display[i][j]
-                    if t[1]!=n[1]:
-                        self.board.display_luminance([[n[1]]], x=j, y=i)
-                        t[1]=n[1]
-                    if t[0]!=n[0]:
-                        self.board.display_chars([[n[0]]], x=j, y=i)
-                        t[0]=n[0]
-        except select.error:
-            pass
+        for i in range(board.DSP_HEIGHT):
+            for j in range(board.DSP_WIDTH):
+                t = self.transmitted_display[i][j]
+                n = self.display[i][j]
+                if t[1]!=n[1]:
+                    self.board.display_luminance([[n[1]]], x=j, y=i)
+                    t[1]=n[1]
+                if t[0]!=n[0]:
+                    self.board.display_chars([[n[0]]], x=j, y=i)
+                    t[0]=n[0]
 
     def scroll_down(self):
         #self.display=self.display[1:len(self.display)]
@@ -326,6 +317,11 @@ class Terminal:
             self.delta_transmit()
 
     def run(self):
+        attr=termios.tcgetattr(sys.stdin)
+        oldattr=copy.deepcopy(attr)
+        attr[3] &= ~( termios.ICANON | termios.ECHO )
+        termios.tcsetattr(sys.stdin, termios.TCSANOW, attr)
+
         self.last_blink=0
         while(True):
             timeout = self.last_blink-time.time()+self.cursor_blink_interval
@@ -362,6 +358,7 @@ class Terminal:
                     except:
                         print "EOF read - cleaing up - bye"
                         self.board.clear()
+                        termios.tcsetattr(sys.stdin, termios.TCSANOW, oldattr)
                         return
                     self.char_processor(c)
                     self.cursor_blink_state=True
