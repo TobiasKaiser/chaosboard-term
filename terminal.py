@@ -31,8 +31,7 @@ def gendisplay():
 
 class Terminal:
     def signal_handler(self, s, frame):
-        #self.shell.send_signal(signal.SIGINT)
-        print ":o"
+        print "^C received."
         os.write(self.master, chr(3))
         return signal.SIG_IGN
     def __init__(self):
@@ -185,12 +184,10 @@ class Terminal:
         else:
             print "UNHANDLED", key
     def scroll_up(self):
-        #self.display=self.display[1:len(self.display)]
-        # append new line
         l=[]
         for i in range(board.DSP_WIDTH):
             l.append([" ", 0])
-        #self.display.append(l)
+
         self.display.pop(self.scroll_range[1])
         self.display.insert(self.scroll_range[0], l)
         
@@ -215,7 +212,6 @@ class Terminal:
         elif cmd=="K":
             self.clear_line()
         elif cmd=="r":
-            print arg
             try:
                 b, e = arg.split(";")
                 try:
@@ -268,7 +264,8 @@ class Terminal:
                 try:
                     i=int(arg)
                 except:
-                    print arg
+                    pass
+                    #print arg
             if i==1:
                 unhandled="Clear upwards"
             elif i==0:
@@ -316,62 +313,58 @@ class Terminal:
             if len(self.multichar_buffer)>10:
                 print "Multichar buffer overflow:", self.multichar_buffer
                 self.multichar_buffer=""
+                sys.exit(1)
     
     def cursor_refresh(self):
-        if not self.cursor_visible:
-            return
-        if self.cursor_blink_state==1:
-            self.board.display([[, self.cursor[0], self.cursor[1])
-            self.transmitted_display[self.cursor[1]][self.cursor[0]]=["_",
-                7]
+        if not self.cursor_visible: return
+        if self.cursor_blink_state:
+            self.board.display([[self.visual_cursor]],
+                self.cursor[0], self.cursor[1])
+            self.transmitted_display[self.cursor[1]][self.cursor[0]]=\
+                copy.copy(self.visual_cursor)
         else:
             self.delta_transmit()
 
     def run(self):
-        time.sleep(1)
         self.last_blink=0
         while(True):
             timeout = self.last_blink-time.time()+self.cursor_blink_interval
             if timeout < 0:
                 timeout = 0
             try:
-                rl = select.select([sys.stdin, self.term], [], [],
-                    timeout)[0]
-            except: # KeyboardInterrupt:
+                rl = select.select([sys.stdin, self.term], [], [], timeout)[0]
+            except:
+                # The keyboard interrupt (^C) is handled by passing a certain
+                # character to the pty master - nothing to do here 
                 pass
-                #self.shell.send_signal(signal.SIGINT);
-                #self.board.clear()
-                #sys.exit(0)
+
             if rl==[]: # and time.time()-self.last_blink>self.cursor_blink_interval:
                 self.last_blink=time.time()
                 print "DELTA TRANSMISSION!"
                 self.delta_transmit()
-                if self.cursor_blink_state==0:
-                    self.cursor_blink_state=1
+                if self.cursor_blink_state:
+                    self.cursor_blink_state=False
                 else:
-                    self.cursor_blink_state=0
+                    self.cursor_blink_state=True
                 self.cursor_refresh()
-                #self.shell.poll()
-                #if self.shell.returncode!=None:
-                #    print "Shell exited."
-                #    self.board.clear()
-                #    sys.exit(self.shell.returncode)
+
             for r in rl:
                 if r==sys.stdin:
                     c = os.read(0,1)
                     if c==27:
-                            os.write(self.master, c)
+                        os.write(self.master, c)
                     else:
-                        print ord(c)
+                        #print ord(c)
                         os.write(self.master,c)
                 elif r==self.term:
                     try:
                         c = os.read(self.master, 1)
                     except:
+                        print "EOF read - cleaing up - bye"
                         self.board.clear()
-                        sys.exit()
+                        return
                     self.char_processor(c)
-                    self.cursor_blink_state=0
+                    self.cursor_blink_state=True
                     self.last_blink=0
 
 if __name__=="__main__":

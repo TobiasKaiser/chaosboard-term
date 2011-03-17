@@ -111,14 +111,28 @@ class Simulator():
         while True:
             self.receive()
             self.print_display()
- 
-class Board():
+
+class Buffer:
+    def __init__(self,size):
+        self.char = []
+        self.lum = []
+        for i in range(board.DSP_HEIGHT):
+            ll=[]
+            cl=[]
+            for j in range(board.DSP_WIDTH):
+                ll.append(0)
+                cl.append(" ")
+            self.char.append(cl)
+            self.lum.append(ll)
+
+class Board:
     def __init__(self, host=NET_HOST, port=NET_PORT):
         self.sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         self.host = (host, port)
         self.timeout = 3 # seconds
 
     def write(self, text, x=0, y=0, lum=-1):
+        """Writes some string to board - use display_chars instead!"""
         if lum > -1: # -1 = dont change
             self.send(CMD_WRITE_LUM_STD, data=struct.pack("b", lum))
         self.send(CMD_WRITE_STD, x, y, 1, 1, text)
@@ -130,9 +144,11 @@ class Board():
             self.send(CMD_RESET);
 
     def set_luminance(self, lum):
+        """Globally sets luminance of all cells"""
         self.send(CMD_INTENSITY, data=struct.pack("b", lum))
 
     def display(self, buffer, x=0, y=0):
+        """Don't use this lame function."""
         lum_array=[]
         char_array=[]
         for r in buffer:
@@ -147,7 +163,8 @@ class Board():
         self.display_chars(char_array, x, y)
 
     def display_luminance(self, buffer, x=0, y=0):
-        """example: [["a", "b", "c"], ["d", "b", "f"]]"""
+        """Set luminance for sepecific cells.
+        example: [["a", "b", "c"], ["d", "b", "f"]]"""
         columns = len(buffer[0])
         # TODO: Check type!
         rows = len(buffer)
@@ -169,7 +186,7 @@ class Board():
         self.send(CMD_WRITE_RAW, x, y, columns, rows, data)
         
     def clear(self):
-        self.send(CMD_CLEAR);
+        self.send(CMD_CLEAR)
         self.set_luminance(LUM_MAX)
 
     def send(self, command, x=0, y=0, width=0, height=0, data=""):
