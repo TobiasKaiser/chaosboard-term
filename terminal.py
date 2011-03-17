@@ -29,21 +29,33 @@ def gendisplay():
         d.append(l)
     return d
 
+class Buffer:
+    def __init__(self):
+        self.char = []
+        self.lum = []
+        for i in range(board.DSP_HEIGHT):
+            ll=[]
+            cl=[]
+            for j in range(board.DSP_WIDTH):
+                ll.append(0)
+                cl.append(" ")
+            self.char.append(cl)
+            self.lum.append(ll)
+
+
 class Terminal:
     def signal_handler(self, s, frame):
         print "^C received."
         os.write(self.master, chr(3))
         return signal.SIG_IGN
     def __init__(self):
-
+        #self.visual_cursor=["\xdb", 7] # block cursor
         self.visual_cursor=["_", 7]
-
 
         signal.signal(signal.SIGINT, self.signal_handler)
         self.cursor_blink_interval=0.5
         self.cursor_blink_state=0 
 
-        #self.master, self.slave = os.openpty()
         slavepid, self.master = pty.fork()
         if slavepid==0:
             os.environ["TERM"]="vt100"
@@ -51,14 +63,9 @@ class Terminal:
 
         self.term = os.fdopen(self.master, "r", 0)
 
-        # setup remote side
+        # setup "remote" side
         fcntl.ioctl(self.master, termios.TIOCSWINSZ,
             struct.pack("hhhh", board.DSP_HEIGHT, board.DSP_WIDTH, 0, 0))
-
-        #self.shell = subprocess.Popen(os.environ["SHELL"],
-        #    stdin=self.slave,
-        #    stdout=self.slave,
-        #    stderr=self.slave, bufsize=0)
 
         attr = termios.tcgetattr(self.master)
         attr[3] &= ~termios.ICANON
@@ -77,6 +84,7 @@ class Terminal:
         self.last_wrapped=False
     
     def clear(self):
+        #self.display=Buffer()
         self.display=gendisplay()
         self.board.clear()
         self.transmitted_display=gendisplay()
@@ -146,6 +154,8 @@ class Terminal:
         self.style_lum=board.LUM_MAX
 
     def style(self, key):
+        self.style2lum_dict={7:10, # white
+            6:3, 5:3, 4:3, 3:3, 2:3, 1:3}
         try:
             key=int(key)
         except:
@@ -154,26 +164,14 @@ class Terminal:
             self.reset_style()
         elif 30<=key<=37:
             col=key-30
-            if col==7: # white
-                self.style_lum=7
-            elif col==6:
-                self.style_lum=3
-            elif col==5:
-                self.style_lum=3
-            elif col==4:
-                self.style_lum=3
-            elif col==3:
-                self.style_lum=3
-            elif col==2:
-                self.style_lum=3
-            elif col==1:
-                self.style_lum=3
+            if col in self.style2lum_dict:
+                self.style_lum=self.style2lum_dict[col] 
             else:
                 print "broop", col
-                self.style_lum=7
-            self.style_lum=15
+                self.style_lum=self.style2lum_dict[7]
         else:
             print "UNHANDLED", key
+
     def scroll_up(self):
         l=[]
         for i in range(board.DSP_WIDTH):
@@ -313,8 +311,7 @@ class Terminal:
                 self.cursor[0], self.cursor[1])
             self.transmitted_display[self.cursor[1]][self.cursor[0]]=\
                 copy.copy(self.visual_cursor)
-        else:
-            self.delta_transmit()
+        else: self.delta_transmit()
 
     def run(self):
         attr=termios.tcgetattr(sys.stdin)
@@ -338,11 +335,11 @@ class Terminal:
                 self.last_blink=time.time()
                 print "DELTA TRANSMISSION!"
                 self.delta_transmit()
+                self.cursor_refresh()
                 if self.cursor_blink_state:
                     self.cursor_blink_state=False
                 else:
                     self.cursor_blink_state=True
-                self.cursor_refresh()
 
             for r in rl:
                 if r==sys.stdin:

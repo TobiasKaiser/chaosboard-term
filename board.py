@@ -111,20 +111,6 @@ class Simulator():
         while True:
             self.receive()
             self.print_display()
-
-class Buffer:
-    def __init__(self,size):
-        self.char = []
-        self.lum = []
-        for i in range(board.DSP_HEIGHT):
-            ll=[]
-            cl=[]
-            for j in range(board.DSP_WIDTH):
-                ll.append(0)
-                cl.append(" ")
-            self.char.append(cl)
-            self.lum.append(ll)
-
 class Board:
     def __init__(self, host=NET_HOST, port=NET_PORT):
         self.sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
