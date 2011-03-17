@@ -28,7 +28,6 @@ def gendisplay():
             l.append([" ", 0])
         d.append(l)
     return d
-
 class Buffer:
     def __init__(self):
         self.char = []
@@ -42,12 +41,58 @@ class Buffer:
             self.char.append(cl)
             self.lum.append(ll)
 
+    def getcell_compat(self, row, col):
+        return [self.char[row][col], self.lum[row][col]]
+
+    def setcell_compat(self, row, col, cell):
+        self.char[row][col]=cell[0]
+        self.lum[row][col]=cell[1]
+
+class TermBuffer(Buffer):
+    def delta_transmit(self, bd, previous):
+        self.nu_delta_transmit(bd, previous)
+
+    def nu_delta_transmit(self, bd, previous):
+        bd.display_chars(self.char)
+        #bd.display_luminance(self.lum)
+
+    def old_delta_transmit(self, bd, previous):
+        for i in range(board.DSP_HEIGHT):
+            for j in range(board.DSP_WIDTH):
+                t = previous.getcell_compat(i, j)
+                n = self.getcell_compat(i, j)
+                if t[1]!=n[1]:
+                    bd.display_luminance([[n[1]]], x=j, y=i)
+                    t[1]=n[1]
+                if t[0]!=n[0]:
+                    bd.display_chars([[n[0]]], x=j, y=i)
+                    t[0]=n[0]
+    def clear_disp(self, cursor):
+        for i in range(board.DSP_HEIGHT-cursor[1]-1):
+            for j in range(board.DSP_WIDTH):
+                self.setcell_compat(cursor[1]-1+i, j, [" ", 0])
+
+    def clear_line(self, cursor):
+        for i in range(board.DSP_WIDTH-cursor[0]):
+            try:
+                self.setcell_compat(cursor[1], cursor[0]+i,[" ", board.LUM_MAX])
+            except:
+                pass
+    
+    def scroll(self, scroll_range):
+        # append new line
+        lc=[]
+        ll=[]
+        for i in range(board.DSP_WIDTH):
+            lc.append(" ")
+        for i in range(board.DSP_WIDTH):
+            ll.append(board.LUM_MAX)
+        self.char.pop(scroll_range[0])
+        self.char.insert(scroll_range[1], lc)
+        self.lum.pop(scroll_range[0])
+        self.lum.insert(scroll_range[1], ll)
 
 class Terminal:
-    def signal_handler(self, s, frame):
-        print "^C received."
-        os.write(self.master, chr(3))
-        return signal.SIG_IGN
     def __init__(self):
         #self.visual_cursor=["\xdb", 7] # block cursor
         self.visual_cursor=["_", 7]
@@ -63,7 +108,6 @@ class Terminal:
 
         self.term = os.fdopen(self.master, "r", 0)
 
-        # setup "remote" side
         fcntl.ioctl(self.master, termios.TIOCSWINSZ,
             struct.pack("hhhh", board.DSP_HEIGHT, board.DSP_WIDTH, 0, 0))
 
@@ -83,11 +127,15 @@ class Terminal:
         # carriage return itself)
         self.last_wrapped=False
     
+    def signal_handler(self, s, frame):
+        print "^C received."
+        os.write(self.master, chr(3))
+        return signal.SIG_IGN
+
     def clear(self):
-        #self.display=Buffer()
-        self.display=gendisplay()
+        self.display=TermBuffer()
         self.board.clear()
-        self.transmitted_display=gendisplay()
+        self.transmitted_display=TermBuffer()
         self.cursor_visible=True
         self.scroll_range=[0, board.DSP_HEIGHT-1]
         self.board.clear();
@@ -95,32 +143,15 @@ class Terminal:
 
 
     def delta_transmit(self):
-        self.delta_transmit_old()
-
-    def delta_transmit_old(self):
-        for i in range(board.DSP_HEIGHT):
-            for j in range(board.DSP_WIDTH):
-                t = self.transmitted_display[i][j]
-                n = self.display[i][j]
-                if t[1]!=n[1]:
-                    self.board.display_luminance([[n[1]]], x=j, y=i)
-                    t[1]=n[1]
-                if t[0]!=n[0]:
-                    self.board.display_chars([[n[0]]], x=j, y=i)
-                    t[0]=n[0]
-
-    def scroll_down(self):
-        #self.display=self.display[1:len(self.display)]
-        # append new line
-        l=[]
-        for i in range(board.DSP_WIDTH):
-            l.append([" ", board.LUM_MAX])
-        #self.display.append(l)
-        self.display.pop(self.scroll_range[0])
-        self.display.insert(self.scroll_range[1], l)
-        
-        self.board.display(self.display)
+        print "DELTA TRANSMISSION!"
+        self.display.delta_transmit(self.board, self.transmitted_display)
         self.transmitted_display=copy.deepcopy(self.display)
+        
+    def scroll_down(self):
+        self.display.scroll(self.scroll_range)
+        
+        # self.board.display(self.display)
+        # self.transmitted_display=copy.deepcopy(self.display)
 
     def new_line(self, wrap=False):
         self.cursor[0]=0
@@ -137,17 +168,10 @@ class Terminal:
             self.cursor[0]+=1
     
     def clear_line(self):
-        for i in range(board.DSP_WIDTH-self.cursor[0]):
-            try:
-                self.display[self.cursor[1]][self.cursor[0]+i]=[" ", board.LUM_MAX]
-            except:
-                pass
+        self.display.clear_line(self.cursor)
     
     def clear_downwards(self):
-        self.clear_line()
-        self.display=self.display[0:self.cursor[1]+1]
-        self.display+=gendisplay()[0:board.DSP_HEIGHT-self.cursor[1]-1]
-
+        self.display.clear_disp(self.cursor)
 
     def reset_style(self):
         # colors are greyscale between board.LUM_MIN and MAX
@@ -272,8 +296,8 @@ class Terminal:
         if self.multichar_buffer=="":
             if char in PRINTABLE_CHARS:
                 try:
-                    self.display[self.cursor[1]][self.cursor[0]]= \
-                        [char, self.style_lum]
+                    self.display.setcell_compat(self.cursor[1],
+                        self.cursor[0], [char, self.style_lum])
                     self.cursor_incr()
                 except:
                     pass
@@ -288,16 +312,17 @@ class Terminal:
                 self.new_line()
             elif ord(char) == ANSI_BACKSPACE:
                 self.cursor[0]-=1
-                self.display[self.cursor[1]][self.cursor[0]]=[" ", 0]
+                self.display.setcell_compat(self.cursor[1],self.cursor[0],
+                    [" ", 0])
             else:
                 print "Unhandled character code:", ord(char)
-            self.delta_transmit()
+            #self.delta_transmit()
         else:
             # process escape sequences
             self.multichar_buffer+=char
             if char in string.letters:
                 self.process_escape_sequence(self.multichar_buffer)
-                self.delta_transmit()
+                #self.delta_transmit()
                 self.multichar_buffer=""
             if len(self.multichar_buffer)>10:
                 print "Multichar buffer overflow:", self.multichar_buffer
@@ -307,13 +332,20 @@ class Terminal:
     def cursor_refresh(self):
         if not self.cursor_visible: return
         if self.cursor_blink_state:
-            self.board.display([[self.visual_cursor]],
-                self.cursor[0], self.cursor[1])
-            self.transmitted_display[self.cursor[1]][self.cursor[0]]=\
-                copy.copy(self.visual_cursor)
-        else: self.delta_transmit()
+            temp_display=copy.deepcopy(self.display)
+            try:
+                temp_display.setcell_compat(self.cursor[1], self.cursor[0],
+                    self.visual_cursor)
+                temp_display.delta_transmit(self.board,
+                    self.transmitted_display)
+                self.transmitted_display=temp_display
+            except:
+                pass
+        else:
+            self.delta_transmit()
 
     def run(self):
+        self.board.set_luminance(7)
         attr=termios.tcgetattr(sys.stdin)
         oldattr=copy.deepcopy(attr)
         attr[3] &= ~( termios.ICANON | termios.ECHO )
@@ -333,7 +365,6 @@ class Terminal:
 
             if rl==[]: # and time.time()-self.last_blink>self.cursor_blink_interval:
                 self.last_blink=time.time()
-                print "DELTA TRANSMISSION!"
                 self.delta_transmit()
                 self.cursor_refresh()
                 if self.cursor_blink_state:
