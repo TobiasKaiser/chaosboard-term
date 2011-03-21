@@ -22,15 +22,6 @@ ANSI_BACKSPACE=8
 
 PRINTABLE_CHARS=string.letters+string.digits+string.punctuation+" "
 
-def gendisplay():
-    d = []
-    for i in range(board.DSP_HEIGHT):
-        l=[]
-        for j in range(board.DSP_WIDTH):
-            l.append([" ", 0])
-        d.append(l)
-    return d
-
 class Buffer:
     def __init__(self):
         self.char = []
@@ -105,8 +96,23 @@ class TermBuffer(Buffer):
         self.lum.pop(scroll_range[0])
         self.lum.insert(scroll_range[1], ll)
 
+    def scroll_up(self, scroll_range):
+        lc=[]
+        ll=[]
+        for i in range(board.DSP_WIDTH):
+            ll.append(0)
+            lc.append(" ")
+
+        self.lum.pop(scroll_range[1])
+        self.lum.insert(scroll_range[0], ll)
+        self.char.pop(scroll_range[1])
+        self.char.insert(scroll_range[0], lc)
+        
+
 class Terminal:
     def __init__(self):
+        self.debug_mode=False
+        self.debug_no=0
         self.colored=False
         self.style2lum_dict={0:10, 7:10, # white
             6:3, 5:3, 4:3, 3:3, 2:3, 1:3}
@@ -157,7 +163,7 @@ class Terminal:
         self.scroll_range=[0, board.DSP_HEIGHT-1]
 
     def delta_transmit(self):
-        #print "DELTA TRANSMISSION!"
+        self.debug("update.")
         self.display.delta_transmit(self.board, self.transmitted_display,
             self.colored)
         self.transmitted_display=copy.deepcopy(self.display)
@@ -189,18 +195,8 @@ class Terminal:
             self.style_lum=self.style2lum_dict[col] 
         else:
             pass
-            #print "UNHANDLED", key
+            self.debug("UNHANDLED %i"%key)
 
-    def scroll_up(self):
-        l=[]
-        for i in range(board.DSP_WIDTH):
-            l.append([" ", 0])
-
-        self.display.pop(self.scroll_range[1])
-        self.display.insert(self.scroll_range[0], l)
-        
-        self.board.display(self.display)
-        self.transmitted_display=copy.deepcopy(self.display)
         
     def process_escape_sequence(self, sequence):
         s = sequence[1:len(sequence)]
@@ -226,8 +222,7 @@ class Terminal:
                     e=int(e)-1
                 except:
                     pass
-                    #print "ooops"
-                #print "nu scroll range", cmd, arg
+                self.debug("nu scroll range %a %a" %( cmd, arg))
                 self.scroll_range=[b, e]
             except:
                 self.scroll_range=[0, board.DSP_HEIGHT-1]
@@ -242,7 +237,7 @@ class Terminal:
                 self.cursor[1]+=int(arg)
             except: pass
         elif cmd=="M": # scroll up 1 line
-            self.scroll_up()
+            self.display.scroll_up(self.scroll_range)
         elif cmd=="C": # move cursor forward
             try:
                 self.cursor[0]+=int(arg)
@@ -275,7 +270,6 @@ class Terminal:
                     i=int(arg)
                 except:
                     pass
-                    #print arg
             if i==1:
                 unhandled="Clear upwards"
             elif i==0:
@@ -287,8 +281,8 @@ class Terminal:
         
         if unhandled:
             pass
-            #print "Unhandled escape sequence: cmd=%s, arg=%s (%s)" % (cmd,
-            #    arg, unhandled)
+            self.debug("Unhandled escape sequence: cmd=%s, arg=%s (%s)" %
+                (cmd, arg, unhandled))
 
     def char_processor(self, char):
         if self.multichar_buffer=="":
@@ -332,38 +326,70 @@ class Terminal:
         if self.cursor_blink_state:
             temp_display=copy.deepcopy(self.display)
             try:
-                temp_display.setcell_compat(self.cursor[1], self.cursor[0],
+                self.display.setcell_compat(self.cursor[1], self.cursor[0],
                     self.visual_cursor)
-                temp_display.delta_transmit(self.board,
-                    self.transmitted_display, self.colored)
-                self.transmitted_display=temp_display
-                self.transmitted_display.curses_render(self.win_term)
+                self.delta_transmit()
+                self.display=temp_display
             except:
                 pass
         else:
             self.delta_transmit()
 
-    def run(self, stdscr):
-        self.board.clear() 
-        self.board.set_luminance(7)
-        signal.signal(signal.SIGINT, self.handler_sigint)
+    def debug(self,message):
+        if not self.debug_mode: return
+        self.win_debug.scroll(-1)
+        self.win_debug.addstr(0,0,str(self.debug_no)+' '+message)
+        self.win_debug.refresh()
+        self.debug_no+=1
 
-        self.stdscr=stdscr
+    def status_update(self):
+        self.win_status.clear()
+        self.win_status.addstr(0,0,str(time.time()))
+        self.win_status.refresh()
+
+    def curses_init(self, stdscr):
         curses.start_color()
         curses.noecho()
         curses.cbreak()
         curses.curs_set(0)
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)
+        curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_RED)
+        curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_CYAN)
         theight,twidth=stdscr.getmaxyx()
-        self.win_term=curses.newwin(board.DSP_HEIGHT+2, board.DSP_WIDTH+2,
-            (theight-board.DSP_HEIGHT)/2-1, (twidth-board.DSP_WIDTH)/2-1)
+
+        if(self.debug_mode):
+            self.win_term=curses.newwin(board.DSP_HEIGHT+2, board.DSP_WIDTH+2,
+                (theight-board.DSP_HEIGHT)/2-1, 0)
+
+            dw1=curses.newwin(theight-1, twidth-2-board.DSP_WIDTH,
+                0, board.DSP_WIDTH+2)
+            dw1.bkgd(' ', curses.color_pair(2))
+            dw1.border()
+            dw1.refresh()
+            self.win_debug=dw1.derwin(theight-1-2, twidth-2-2-board.DSP_WIDTH,
+                1, 1)
+            self.win_debug.bkgd(' ', curses.color_pair(2))
+            self.win_debug.refresh()
+            self.win_debug.scrollok(True)
+
+        else:
+            self.win_term=curses.newwin(board.DSP_HEIGHT+2, board.DSP_WIDTH+2,
+                (theight-board.DSP_HEIGHT)/2-1, (twidth-board.DSP_WIDTH)/2-1)
+
         self.win_term.bkgd(' ', curses.color_pair(1))
         self.win_term.border()
         self.win_status=curses.newwin(1, twidth, theight-1, 0)
-        self.win_status.bkgd(' ', curses.color_pair(1))
-        self.win_status.addstr(0,0, "Asdf")
-        self.win_status.refresh()
+        self.win_status.bkgd(' ', curses.color_pair(3))
+        self.status_update()
 
+    def run(self, stdscr):
+        self.board.clear() 
+        self.board.set_luminance(7)
+        signal.signal(signal.SIGINT, self.handler_sigint)
+        
+        self.curses_init(stdscr)
+        last_update=time.time()
+        last_envupdate=time.time()
         self.last_blink=0
         while(True):
             timeout = self.last_blink-time.time()+self.cursor_blink_interval
@@ -374,13 +400,20 @@ class Terminal:
                 pass # work is done by handler_sigint
             except select.error: # Interrupted system call, esp. by SIGWINCH
                 continue
+
+            if(time.time()-last_envupdate>2):
+                self.debug( "envupdate.")
+                last_envupdate=time.time()
+
             if rl==[]: # timeout for blinking cursor
                 self.last_blink=time.time()
                 self.cursor_refresh()
+                last_update=time.time()
                 if self.cursor_blink_state:
                     self.cursor_blink_state=False
                 else:
                     self.cursor_blink_state=True
+                continue
 
             for r in rl:
                 if r==sys.stdin:
@@ -399,6 +432,12 @@ class Terminal:
                     self.cursor_blink_state=True
                     self.last_blink=0
 
+            if(time.time()-last_update>(1.0/30)):
+                self.debug( "bump")
+                self.delta_transmit()
+                last_update=time.time()
+            
+
 def usage():
     print "Usage: terminal.py [host] [-c|--colored] [-d|--debug] [-p|--port]"
     print
@@ -408,7 +447,7 @@ def main():
     port=board.NET_PORT
     host=board.NET_HOST
     try:
-        opts, args=getopt.getopt(sys.argv[1:],
+        opts, args=getopt.gnu_getopt(sys.argv[1:],
             "hcdp:", ("help", "colored", "debug", "port="))
     except getopt.GetoptError, err:
         print str(err)
@@ -427,6 +466,8 @@ def main():
             t.colored=True
         if o in ("-p", "--port"):
             port=a
+        if o in ("-d", "--debug"):
+            t.debug_mode=True
         if o in ("-r", "--remote"):
             host=a
     t.connect(host, port)
