@@ -28,6 +28,7 @@ def gendisplay():
             l.append([" ", 0])
         d.append(l)
     return d
+
 class Buffer:
     def __init__(self):
         self.char = []
@@ -67,10 +68,12 @@ class TermBuffer(Buffer):
                 if t[0]!=n[0]:
                     bd.display_chars([[n[0]]], x=j, y=i)
                     t[0]=n[0]
-    def clear_disp(self, cursor):
+
+    def clear_down(self, cursor):
+        # this might be buggy
         for i in range(board.DSP_HEIGHT-cursor[1]-1):
             for j in range(board.DSP_WIDTH):
-                self.setcell_compat(cursor[1]-1+i, j, [" ", 0])
+                self.setcell_compat(cursor[1]+i, j, [" ", 0])
 
     def clear_line(self, cursor):
         for i in range(board.DSP_WIDTH-cursor[0]):
@@ -86,7 +89,7 @@ class TermBuffer(Buffer):
         for i in range(board.DSP_WIDTH):
             lc.append(" ")
         for i in range(board.DSP_WIDTH):
-            ll.append(board.LUM_MAX)
+            ll.append(0)
         self.char.pop(scroll_range[0])
         self.char.insert(scroll_range[1], lc)
         self.lum.pop(scroll_range[0])
@@ -94,10 +97,12 @@ class TermBuffer(Buffer):
 
 class Terminal:
     def __init__(self):
+        self.style2lum_dict={0:10, 7:10, # white
+            6:3, 5:3, 4:3, 3:3, 2:3, 1:3}
         #self.visual_cursor=["\xdb", 7] # block cursor
         self.visual_cursor=["_", 7]
 
-        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGINT, self.handler_sigint)
         self.cursor_blink_interval=0.5
         self.cursor_blink_state=0 
 
@@ -119,7 +124,7 @@ class Terminal:
         self.cursor=[0,0]
         self.multichar_buffer=""
 
-        self.reset_style()
+        self.style_lum=self.style2lum_dict[7]
         self.clear()
         
         # this fixes carriage returns as last character in a line (width +
@@ -127,9 +132,9 @@ class Terminal:
         # carriage return itself)
         self.last_wrapped=False
     
-    def signal_handler(self, s, frame):
+    def handler_sigint(self, s, frame):
         print "^C received."
-        os.write(self.master, chr(3))
+        os.write(self.master, "\x03")
         return signal.SIG_IGN
 
     def clear(self):
@@ -139,25 +144,18 @@ class Terminal:
         self.cursor_visible=True
         self.scroll_range=[0, board.DSP_HEIGHT-1]
         self.board.clear();
-        self.board.set_luminance(0)
-
+        self.board.set_luminance(self.style2lum_dict[7])
 
     def delta_transmit(self):
         print "DELTA TRANSMISSION!"
         self.display.delta_transmit(self.board, self.transmitted_display)
         self.transmitted_display=copy.deepcopy(self.display)
         
-    def scroll_down(self):
-        self.display.scroll(self.scroll_range)
-        
-        # self.board.display(self.display)
-        # self.transmitted_display=copy.deepcopy(self.display)
-
     def new_line(self, wrap=False):
         self.cursor[0]=0
         self.last_wrapped=wrap
         if self.cursor[1]>=(self.scroll_range[1]):
-            self.scroll_down()
+            self.display.scroll(self.scroll_range)
         else:
             self.cursor[1]+=1
 
@@ -167,32 +165,16 @@ class Terminal:
         else:
             self.cursor[0]+=1
     
-    def clear_line(self):
-        self.display.clear_line(self.cursor)
-    
-    def clear_downwards(self):
-        self.display.clear_disp(self.cursor)
-
-    def reset_style(self):
-        # colors are greyscale between board.LUM_MIN and MAX
-        self.style_lum=board.LUM_MAX
-
     def style(self, key):
-        self.style2lum_dict={7:10, # white
-            6:3, 5:3, 4:3, 3:3, 2:3, 1:3}
         try:
             key=int(key)
         except:
             key=0
         if key==0:
-            self.reset_style()
+            self.style_lum=self.style2lum_dict[7]
         elif 30<=key<=37:
             col=key-30
-            if col in self.style2lum_dict:
-                self.style_lum=self.style2lum_dict[col] 
-            else:
-                print "broop", col
-                self.style_lum=self.style2lum_dict[7]
+            self.style_lum=self.style2lum_dict[col] 
         else:
             print "UNHANDLED", key
 
@@ -213,8 +195,7 @@ class Terminal:
         arg = s[1:len(s)-1]
         unhandled=0
         self.last_wrapped=False
-        if s.startswith("?"):
-            # drop that ^^
+        if s.startswith("?"): # drop that ^^
             return
 
         if cmd=="m": # character style
@@ -223,7 +204,7 @@ class Terminal:
                     continue
                 self.style(a)
         elif cmd=="K":
-            self.clear_line()
+            self.display.clear_line(self.cursor)
         elif cmd=="r":
             try:
                 b, e = arg.split(";")
@@ -282,7 +263,7 @@ class Terminal:
             if i==1:
                 unhandled="Clear upwards"
             elif i==0:
-                self.clear_downwards()
+                self.display.clear_down(self.cursor)
             elif i==2:
                 self.clear()
         else:
@@ -322,7 +303,6 @@ class Terminal:
             self.multichar_buffer+=char
             if char in string.letters:
                 self.process_escape_sequence(self.multichar_buffer)
-                #self.delta_transmit()
                 self.multichar_buffer=""
             if len(self.multichar_buffer)>10:
                 print "Multichar buffer overflow:", self.multichar_buffer
@@ -346,26 +326,24 @@ class Terminal:
 
     def run(self):
         self.board.set_luminance(7)
+
         attr=termios.tcgetattr(sys.stdin)
-        oldattr=copy.deepcopy(attr)
+        oldattr=attr=copy.copy(attr)
+        # disable line buffer
         attr[3] &= ~( termios.ICANON | termios.ECHO )
         termios.tcsetattr(sys.stdin, termios.TCSANOW, attr)
 
         self.last_blink=0
         while(True):
             timeout = self.last_blink-time.time()+self.cursor_blink_interval
-            if timeout < 0:
-                timeout = 0
+            if timeout < 0: timeout=0
             try:
                 rl = select.select([sys.stdin, self.term], [], [], timeout)[0]
-            except:
-                # The keyboard interrupt (^C) is handled by passing a certain
-                # character to the pty master - nothing to do here 
-                pass
+            except KeyboardInterrupt:
+                pass # work is done by handler_sigint
 
-            if rl==[]: # and time.time()-self.last_blink>self.cursor_blink_interval:
+            if rl==[]: # timeout for blinking cursor
                 self.last_blink=time.time()
-                self.delta_transmit()
                 self.cursor_refresh()
                 if self.cursor_blink_state:
                     self.cursor_blink_state=False
