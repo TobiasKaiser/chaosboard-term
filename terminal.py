@@ -2,6 +2,7 @@
 
 import pty
 import os, sys
+import curses
 import termios
 import subprocess
 import select
@@ -41,6 +42,13 @@ class Buffer:
                 cl.append(" ")
             self.char.append(cl)
             self.lum.append(ll)
+
+    def curses_render(self, window):
+        """Respects border."""
+        for i in range(board.DSP_HEIGHT):
+            for j in range(board.DSP_WIDTH):
+                window.addch(i+1,j+1, ord(self.char[i][j]))
+        window.refresh()
 
     def getcell_compat(self, row, col):
         return [self.char[row][col], self.lum[row][col]]
@@ -133,7 +141,7 @@ class Terminal:
         self.last_wrapped=False
     
     def handler_sigint(self, s, frame):
-        print "^C received."
+        #print "^C received."
         os.write(self.master, "\x03")
         return signal.SIG_IGN
 
@@ -147,10 +155,11 @@ class Terminal:
         self.board.set_luminance(self.style2lum_dict[7])
 
     def delta_transmit(self):
-        print "DELTA TRANSMISSION!"
+        #print "DELTA TRANSMISSION!"
         self.display.delta_transmit(self.board, self.transmitted_display)
         self.transmitted_display=copy.deepcopy(self.display)
-        
+        self.display.curses_render(self.win)
+
     def new_line(self, wrap=False):
         self.cursor[0]=0
         self.last_wrapped=wrap
@@ -176,7 +185,8 @@ class Terminal:
             col=key-30
             self.style_lum=self.style2lum_dict[col] 
         else:
-            print "UNHANDLED", key
+            pass
+            #print "UNHANDLED", key
 
     def scroll_up(self):
         l=[]
@@ -212,8 +222,9 @@ class Terminal:
                     b=int(b)-1
                     e=int(e)-1
                 except:
-                    print "ooops"
-                print "nu scroll range", cmd, arg
+                    pass
+                    #print "ooops"
+                #print "nu scroll range", cmd, arg
                 self.scroll_range=[b, e]
             except:
                 self.scroll_range=[0, board.DSP_HEIGHT-1]
@@ -270,8 +281,9 @@ class Terminal:
             unhandled="Unknown"
         
         if unhandled:
-            print "Unhandled escape sequence: cmd=%s, arg=%s (%s)" % (cmd,
-                arg, unhandled)
+            pass
+            #print "Unhandled escape sequence: cmd=%s, arg=%s (%s)" % (cmd,
+            #    arg, unhandled)
 
     def char_processor(self, char):
         if self.multichar_buffer=="":
@@ -296,7 +308,8 @@ class Terminal:
                 self.display.setcell_compat(self.cursor[1],self.cursor[0],
                     [" ", 0])
             else:
-                print "Unhandled character code:", ord(char)
+                #print "Unhandled character code:", ord(char)
+                pass
             #self.delta_transmit()
         else:
             # process escape sequences
@@ -319,6 +332,7 @@ class Terminal:
                 temp_display.delta_transmit(self.board,
                     self.transmitted_display)
                 self.transmitted_display=temp_display
+                self.transmitted_display.curses_render(self.win)
             except:
                 pass
         else:
@@ -329,9 +343,18 @@ class Terminal:
 
         attr=termios.tcgetattr(sys.stdin)
         oldattr=attr=copy.copy(attr)
-        # disable line buffer
-        attr[3] &= ~( termios.ICANON | termios.ECHO )
-        termios.tcsetattr(sys.stdin, termios.TCSANOW, attr)
+
+        stdscr=curses.initscr()
+        curses.start_color()
+        curses.noecho()
+        curses.cbreak()
+        curses.curs_set(0)
+        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)
+        theight,twidth=stdscr.getmaxyx()
+        self.win=curses.newwin(board.DSP_HEIGHT+2, board.DSP_WIDTH+2,
+            (theight-board.DSP_HEIGHT)/2+1, (twidth-board.DSP_WIDTH)/2+1)
+        self.win.bkgd(' ', curses.color_pair(1))
+        self.win.border()
 
         self.last_blink=0
         while(True):
@@ -356,15 +379,16 @@ class Terminal:
                     if c==27:
                         os.write(self.master, c)
                     else:
-                        #print ord(c)
                         os.write(self.master,c)
                 elif r==self.term:
                     try:
                         c = os.read(self.master, 1)
                     except:
-                        print "EOF read - cleaing up - bye"
                         self.board.clear()
-                        termios.tcsetattr(sys.stdin, termios.TCSANOW, oldattr)
+                        curses.nocbreak()
+                        curses.echo()
+                        curses.endwin()
+                        curses.curs_set(1)
                         return
                     self.char_processor(c)
                     self.cursor_blink_state=True
