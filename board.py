@@ -23,8 +23,8 @@ DSP_HEIGHT = 20
 DSP_WIDTH = 56
 
 NET_PORT=2342
-#NET_HOST="172.23.42.120"
-NET_HOST="localhost"
+NET_HOST="172.23.42.120"
+#NET_HOST="localhost"
 
 
 class Board:

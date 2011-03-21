@@ -14,6 +14,7 @@ import copy
 import board
 import time
 import signal
+import getopt
 
 ANSI_ESC=27
 ANSI_CARRIAGE_RETURN=13
@@ -58,24 +59,25 @@ class Buffer:
         self.lum[row][col]=cell[1]
 
 class TermBuffer(Buffer):
-    def delta_transmit(self, bd, previous):
-        self.nu_delta_transmit(bd, previous)
+    def delta_transmit(self, bd, previous, colored=False):
+        self.nu_delta_transmit(bd, previous, colored)
 
-    def nu_delta_transmit(self, bd, previous):
+    def nu_delta_transmit(self, bd, previous, colored):
         bd.display_chars(self.char)
-        #bd.display_luminance(self.lum)
+        if colored: bd.display_luminance(self.lum)
 
-    def old_delta_transmit(self, bd, previous):
+    def old_delta_transmit(self, bd, previous, colored):
         for i in range(board.DSP_HEIGHT):
             for j in range(board.DSP_WIDTH):
                 t = previous.getcell_compat(i, j)
                 n = self.getcell_compat(i, j)
-                if t[1]!=n[1]:
-                    bd.display_luminance([[n[1]]], x=j, y=i)
-                    t[1]=n[1]
                 if t[0]!=n[0]:
                     bd.display_chars([[n[0]]], x=j, y=i)
                     t[0]=n[0]
+                if not colored: continue
+                if t[1]!=n[1]:
+                    bd.display_luminance([[n[1]]], x=j, y=i)
+                    t[1]=n[1]
 
     def clear_down(self, cursor):
         # this might be buggy
@@ -105,6 +107,7 @@ class TermBuffer(Buffer):
 
 class Terminal:
     def __init__(self):
+        self.colored=False
         self.style2lum_dict={0:10, 7:10, # white
             6:3, 5:3, 4:3, 3:3, 2:3, 1:3}
         #self.visual_cursor=["\xdb", 7] # block cursor
@@ -127,7 +130,6 @@ class Terminal:
         attr[3] &= ~termios.ICANON
         termios.tcsetattr(self.master, termios.TCSAFLUSH, attr)
 
-        self.board=board.Board()
         self.cursor=[0,0]
         self.multichar_buffer=""
 
@@ -140,6 +142,10 @@ class Terminal:
         # 1st).. only \n and any escape sequence reset this variable.. (and
         # carriage return itself)
         self.last_wrapped=False
+
+    def connect(self, host, port):
+        self.board=board.Board(host, port)
+
     
     def handler_sigint(self, s, frame): # ^C received
         os.write(self.master, "\x03")
@@ -152,7 +158,8 @@ class Terminal:
 
     def delta_transmit(self):
         #print "DELTA TRANSMISSION!"
-        self.display.delta_transmit(self.board, self.transmitted_display)
+        self.display.delta_transmit(self.board, self.transmitted_display,
+            self.colored)
         self.transmitted_display=copy.deepcopy(self.display)
         self.display.curses_render(self.win_term)
 
@@ -328,7 +335,7 @@ class Terminal:
                 temp_display.setcell_compat(self.cursor[1], self.cursor[0],
                     self.visual_cursor)
                 temp_display.delta_transmit(self.board,
-                    self.transmitted_display)
+                    self.transmitted_display, self.colored)
                 self.transmitted_display=temp_display
                 self.transmitted_display.curses_render(self.win_term)
             except:
@@ -392,15 +399,39 @@ class Terminal:
                     self.cursor_blink_state=True
                     self.last_blink=0
 
+def usage():
+    print "Usage: terminal.py [host] [-c|--colored] [-d|--debug] [-p|--port]"
+    print
 
-termopts={
-    ("-h", "--help"):opt_help
-    
-    }
-
-def opt_help:
+def main():
+    t=Terminal()
+    port=board.NET_PORT
+    host=board.NET_HOST
+    try:
+        opts, args=getopt.getopt(sys.argv[1:],
+            "hcdp:", ("help", "colored", "debug", "port="))
+    except getopt.GetoptError, err:
+        print str(err)
+        usage()
+        sys.exit(1)
+    if(len(args)==1):
+        host=args[0]
+    if(len(args)>1):
+        usage()
+        sys.exit(1)
+    for o, a in opts:
+        if o in ("-h", "--help"):
+            usage()
+            return
+        if o in ("-c", "--colored"):
+            t.colored=True
+        if o in ("-p", "--port"):
+            port=a
+        if o in ("-r", "--remote"):
+            host=a
+    t.connect(host, port)
+    curses.wrapper(t.run)
     
 
 if __name__=="__main__":
-    t=Terminal()
-    curses.wrapper(t.run)
+    main()
