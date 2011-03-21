@@ -110,7 +110,6 @@ class Terminal:
         #self.visual_cursor=["\xdb", 7] # block cursor
         self.visual_cursor=["_", 7]
 
-        signal.signal(signal.SIGINT, self.handler_sigint)
         self.cursor_blink_interval=0.5
         self.cursor_blink_state=0 
 
@@ -133,6 +132,8 @@ class Terminal:
         self.multichar_buffer=""
 
         self.style_lum=self.style2lum_dict[7]
+
+        self.transmitted_display=TermBuffer()
         self.clear()
         
         # this fixes carriage returns as last character in a line (width +
@@ -140,25 +141,20 @@ class Terminal:
         # carriage return itself)
         self.last_wrapped=False
     
-    def handler_sigint(self, s, frame):
-        #print "^C received."
+    def handler_sigint(self, s, frame): # ^C received
         os.write(self.master, "\x03")
         return signal.SIG_IGN
 
     def clear(self):
         self.display=TermBuffer()
-        self.board.clear()
-        self.transmitted_display=TermBuffer()
         self.cursor_visible=True
         self.scroll_range=[0, board.DSP_HEIGHT-1]
-        self.board.clear();
-        self.board.set_luminance(self.style2lum_dict[7])
 
     def delta_transmit(self):
         #print "DELTA TRANSMISSION!"
         self.display.delta_transmit(self.board, self.transmitted_display)
         self.transmitted_display=copy.deepcopy(self.display)
-        self.display.curses_render(self.win)
+        self.display.curses_render(self.win_term)
 
     def new_line(self, wrap=False):
         self.cursor[0]=0
@@ -235,7 +231,9 @@ class Terminal:
         elif cmd=="B":
             if arg=="":
                 arg=1
-            self.cursor[1]+=int(arg)
+            try:
+                self.cursor[1]+=int(arg)
+            except: pass
         elif cmd=="M": # scroll up 1 line
             self.scroll_up()
         elif cmd=="C": # move cursor forward
@@ -332,29 +330,32 @@ class Terminal:
                 temp_display.delta_transmit(self.board,
                     self.transmitted_display)
                 self.transmitted_display=temp_display
-                self.transmitted_display.curses_render(self.win)
+                self.transmitted_display.curses_render(self.win_term)
             except:
                 pass
         else:
             self.delta_transmit()
 
-    def run(self):
+    def run(self, stdscr):
+        self.board.clear() 
         self.board.set_luminance(7)
+        signal.signal(signal.SIGINT, self.handler_sigint)
 
-        attr=termios.tcgetattr(sys.stdin)
-        oldattr=attr=copy.copy(attr)
-
-        stdscr=curses.initscr()
+        self.stdscr=stdscr
         curses.start_color()
         curses.noecho()
         curses.cbreak()
         curses.curs_set(0)
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)
         theight,twidth=stdscr.getmaxyx()
-        self.win=curses.newwin(board.DSP_HEIGHT+2, board.DSP_WIDTH+2,
-            (theight-board.DSP_HEIGHT)/2+1, (twidth-board.DSP_WIDTH)/2+1)
-        self.win.bkgd(' ', curses.color_pair(1))
-        self.win.border()
+        self.win_term=curses.newwin(board.DSP_HEIGHT+2, board.DSP_WIDTH+2,
+            (theight-board.DSP_HEIGHT)/2-1, (twidth-board.DSP_WIDTH)/2-1)
+        self.win_term.bkgd(' ', curses.color_pair(1))
+        self.win_term.border()
+        self.win_status=curses.newwin(1, twidth, theight-1, 0)
+        self.win_status.bkgd(' ', curses.color_pair(1))
+        self.win_status.addstr(0,0, "Asdf")
+        self.win_status.refresh()
 
         self.last_blink=0
         while(True):
@@ -364,7 +365,8 @@ class Terminal:
                 rl = select.select([sys.stdin, self.term], [], [], timeout)[0]
             except KeyboardInterrupt:
                 pass # work is done by handler_sigint
-
+            except select.error: # Interrupted system call, esp. by SIGWINCH
+                continue
             if rl==[]: # timeout for blinking cursor
                 self.last_blink=time.time()
                 self.cursor_refresh()
@@ -385,15 +387,20 @@ class Terminal:
                         c = os.read(self.master, 1)
                     except:
                         self.board.clear()
-                        curses.nocbreak()
-                        curses.echo()
-                        curses.endwin()
-                        curses.curs_set(1)
-                        return
+                        return # end of terminal life
                     self.char_processor(c)
                     self.cursor_blink_state=True
                     self.last_blink=0
 
+
+termopts={
+    ("-h", "--help"):opt_help
+    
+    }
+
+def opt_help:
+    
+
 if __name__=="__main__":
     t=Terminal()
-    t.run()
+    curses.wrapper(t.run)
