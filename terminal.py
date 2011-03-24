@@ -125,7 +125,7 @@ class Terminal:
         self.slave, self.master = pty.fork()
         if self.slave==0:
             os.environ["DISPLAY"]=""
-            os.environ["TERM"]="xterm"
+            os.environ["TERM"]="vt100"
             os.execl(os.environ["SHELL"], "")
 
         self.term = os.fdopen(self.master, "r", 0)
@@ -205,7 +205,7 @@ class Terminal:
         arg = s[1:len(s)-1]
         unhandled=0
         self.last_wrapped=False
-        self.debug("recv: "+s)
+        #self.debug("recv: "+s)
         if s.startswith("?"): # drop that ^^
             return
 
@@ -224,10 +224,10 @@ class Terminal:
                     e=int(e)-1
                 except:
                     pass
-                self.debug("nu scroll range %a %a" %( cmd, arg))
                 self.scroll_range=[b, e]
             except:
                 self.scroll_range=[0, board.DSP_HEIGHT-1]
+#            self.debug("nu scroll range %a %a" %self.scroll_range)
         elif cmd=="h" and arg=="?25":
             self.cursor_visible=True
         elif cmd=="l" and arg=="?25":
@@ -239,7 +239,7 @@ class Terminal:
                 self.cursor[1]+=int(arg)
             except: pass
         elif cmd=="M": # scroll up 1 line
-            self.debug("upscroll")
+            #self.debug("upscroll")
             self.display.scroll_up(self.scroll_range)
         elif cmd=="C": # move cursor forward
             try:
@@ -305,6 +305,7 @@ class Terminal:
             elif char=="\n":
                 self.new_line()
             elif ord(char) == ANSI_BACKSPACE:
+                #self.debug("Backspace.")
                 self.cursor[0]-=1
                 self.display.setcell_compat(self.cursor[1],self.cursor[0],
                     [" ", 0])
@@ -380,6 +381,9 @@ class Terminal:
 
         self.win_term.bkgd(' ', curses.color_pair(1))
         self.win_term.border()
+
+        self.win_prompt=curses.newwin(1, twidth, theight-2, 0)
+
         self.win_status=curses.newwin(1, twidth, theight-1, 0)
         self.win_status.bkgd(' ', curses.color_pair(3))
 
@@ -389,9 +393,12 @@ class Terminal:
         self.board.clear() 
         self.board.set_luminance(7)
         signal.signal(signal.SIGINT, self.handler_sigint)
-        self.status_print(":)")
-
+        self.status_print("Use Ctrl+W for command prompt")
         
+        self.prompt_buffer=""
+
+        input_state="term"        
+
         last_update=time.time()
         self.last_blink=0
         while(True):
@@ -417,10 +424,21 @@ class Terminal:
             for r in rl:
                 if r==sys.stdin:
                     c = os.read(0,1)
-                    if c==27:
-                        os.write(self.master, c)
+                    if input_state=="term":
+                        if(ord(c)==23): # ^W
+                            input_state="com"
+                        else:
+                            os.write(self.master,c)
                     else:
-                        os.write(self.master,c)
+                        if c=='\n':
+                            self.prompt_buffer=""
+                        else:
+                            self.prompt_buffer+=c
+                        self.win_prompt.clear()
+                        self.win_prompt.addstr(0,0, self.prompt_buffer)
+                        self.win_prompt.refresh()
+                        self.prompt_buffer
+                        
                 elif r==self.term:
                     try:
                         c = os.read(self.master, 1)
@@ -432,7 +450,7 @@ class Terminal:
                     self.last_blink=0
 
             if(time.time()-last_update>(1.0/self.fps)):
-                self.debug( "bump")
+                #self.debug( "bump")
                 self.delta_transmit()
                 last_update=time.time()
             
