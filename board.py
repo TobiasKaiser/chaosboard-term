@@ -103,7 +103,7 @@ class Board:
         if command in (CMD_HARDRESET, CMD_RESET):
             return 0
         if r==[]:
-            print "No answer received.... x("
+            # print "No answer received.... x("
             return 1
         else:
             answer, host = self.sock.recvfrom(4096)

@@ -22,6 +22,30 @@ ANSI_BACKSPACE=8
 
 PRINTABLE_CHARS=string.letters+string.digits+string.punctuation+" "
 
+
+def readenv(pid):
+    f=file("/proc/%s/environ"%pid)
+    state="key"
+    key=""
+    value=""
+    environ={}
+    for c in f.read():
+        if state=="value":
+            if c=='\0':
+                environ[key]=value
+                state="key"
+                key=""
+                value=""
+            else:
+                value+=c
+        elif state=="key":
+            if c=='=':
+                state="value"
+            else:
+                key+=c
+    f.close()
+    return environ
+
 class Buffer:
     def __init__(self):
         self.char = []
@@ -114,6 +138,7 @@ class Terminal:
         self.debug_mode=False
         self.debug_no=0
         self.colored=False
+        self.fps=30
         self.style2lum_dict={0:10, 7:10, # white
             6:3, 5:3, 4:3, 3:3, 2:3, 1:3}
         #self.visual_cursor=["\xdb", 7] # block cursor
@@ -122,8 +147,9 @@ class Terminal:
         self.cursor_blink_interval=0.5
         self.cursor_blink_state=0 
 
-        slavepid, self.master = pty.fork()
-        if slavepid==0:
+        self.slave, self.master = pty.fork()
+        if self.slave==0:
+            os.environ["DISPLAY"]=""
             os.environ["TERM"]="vt100"
             os.execl(os.environ["SHELL"], "")
 
@@ -342,9 +368,9 @@ class Terminal:
         self.win_debug.refresh()
         self.debug_no+=1
 
-    def status_update(self):
+    def status_print(self, text):
         self.win_status.clear()
-        self.win_status.addstr(0,0,str(time.time()))
+        self.win_status.addstr(0,0,text)
         self.win_status.refresh()
 
     def curses_init(self, stdscr):
@@ -380,14 +406,22 @@ class Terminal:
         self.win_term.border()
         self.win_status=curses.newwin(1, twidth, theight-1, 0)
         self.win_status.bkgd(' ', curses.color_pair(3))
-        self.status_update()
+
+    def spy(self):
+        e=readenv(self.slave)
+        #self.debug(str(e.keys()))
+        if "TERM" in e.keys():
+            self.debug(e["TERM"])
 
     def run(self, stdscr):
+        self.curses_init(stdscr)
+        self.status_print("Connecting...")
         self.board.clear() 
         self.board.set_luminance(7)
         signal.signal(signal.SIGINT, self.handler_sigint)
+        self.status_print(":)")
+
         
-        self.curses_init(stdscr)
         last_update=time.time()
         last_envupdate=time.time()
         self.last_blink=0
@@ -403,6 +437,7 @@ class Terminal:
 
             if(time.time()-last_envupdate>2):
                 self.debug( "envupdate.")
+                self.spy()
                 last_envupdate=time.time()
 
             if rl==[]: # timeout for blinking cursor
@@ -432,7 +467,7 @@ class Terminal:
                     self.cursor_blink_state=True
                     self.last_blink=0
 
-            if(time.time()-last_update>(1.0/30)):
+            if(time.time()-last_update>(1.0/self.fps)):
                 self.debug( "bump")
                 self.delta_transmit()
                 last_update=time.time()
