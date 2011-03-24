@@ -22,30 +22,6 @@ ANSI_BACKSPACE=8
 
 PRINTABLE_CHARS=string.letters+string.digits+string.punctuation+" "
 
-
-def readenv(pid):
-    f=file("/proc/%s/environ"%pid)
-    state="key"
-    key=""
-    value=""
-    environ={}
-    for c in f.read():
-        if state=="value":
-            if c=='\0':
-                environ[key]=value
-                state="key"
-                key=""
-                value=""
-            else:
-                value+=c
-        elif state=="key":
-            if c=='=':
-                state="value"
-            else:
-                key+=c
-    f.close()
-    return environ
-
 class Buffer:
     def __init__(self):
         self.char = []
@@ -131,7 +107,6 @@ class TermBuffer(Buffer):
         self.lum.insert(scroll_range[0], ll)
         self.char.pop(scroll_range[1])
         self.char.insert(scroll_range[0], lc)
-        
 
 class Terminal:
     def __init__(self):
@@ -150,7 +125,7 @@ class Terminal:
         self.slave, self.master = pty.fork()
         if self.slave==0:
             os.environ["DISPLAY"]=""
-            os.environ["TERM"]="vt100"
+            os.environ["TERM"]="xterm"
             os.execl(os.environ["SHELL"], "")
 
         self.term = os.fdopen(self.master, "r", 0)
@@ -189,7 +164,7 @@ class Terminal:
         self.scroll_range=[0, board.DSP_HEIGHT-1]
 
     def delta_transmit(self):
-        self.debug("update.")
+#        self.debug("update.")
         self.display.delta_transmit(self.board, self.transmitted_display,
             self.colored)
         self.transmitted_display=copy.deepcopy(self.display)
@@ -221,7 +196,7 @@ class Terminal:
             self.style_lum=self.style2lum_dict[col] 
         else:
             pass
-            self.debug("UNHANDLED %i"%key)
+            #self.debug("UNHANDLED %i"%key)
 
         
     def process_escape_sequence(self, sequence):
@@ -230,6 +205,7 @@ class Terminal:
         arg = s[1:len(s)-1]
         unhandled=0
         self.last_wrapped=False
+        self.debug("recv: "+s)
         if s.startswith("?"): # drop that ^^
             return
 
@@ -263,6 +239,7 @@ class Terminal:
                 self.cursor[1]+=int(arg)
             except: pass
         elif cmd=="M": # scroll up 1 line
+            self.debug("upscroll")
             self.display.scroll_up(self.scroll_range)
         elif cmd=="C": # move cursor forward
             try:
@@ -306,7 +283,6 @@ class Terminal:
             unhandled="Unknown"
         
         if unhandled:
-            pass
             self.debug("Unhandled escape sequence: cmd=%s, arg=%s (%s)" %
                 (cmd, arg, unhandled))
 
@@ -407,12 +383,6 @@ class Terminal:
         self.win_status=curses.newwin(1, twidth, theight-1, 0)
         self.win_status.bkgd(' ', curses.color_pair(3))
 
-    def spy(self):
-        e=readenv(self.slave)
-        #self.debug(str(e.keys()))
-        if "TERM" in e.keys():
-            self.debug(e["TERM"])
-
     def run(self, stdscr):
         self.curses_init(stdscr)
         self.status_print("Connecting...")
@@ -423,7 +393,6 @@ class Terminal:
 
         
         last_update=time.time()
-        last_envupdate=time.time()
         self.last_blink=0
         while(True):
             timeout = self.last_blink-time.time()+self.cursor_blink_interval
@@ -434,11 +403,6 @@ class Terminal:
                 pass # work is done by handler_sigint
             except select.error: # Interrupted system call, esp. by SIGWINCH
                 continue
-
-            if(time.time()-last_envupdate>2):
-                self.debug( "envupdate.")
-                self.spy()
-                last_envupdate=time.time()
 
             if rl==[]: # timeout for blinking cursor
                 self.last_blink=time.time()
