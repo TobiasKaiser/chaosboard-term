@@ -26,6 +26,7 @@ class Buffer:
     def __init__(self):
         self.char = []
         self.lum = []
+        self.latency=-1
         for i in range(board.DSP_HEIGHT):
             ll=[]
             cl=[]
@@ -51,7 +52,9 @@ class Buffer:
 
 class TermBuffer(Buffer):
     def delta_transmit(self, bd, previous, colored=False):
+        t=time.time()
         self.nu_delta_transmit(bd, previous, colored)
+        self.latency=time.time()-t
 
     def nu_delta_transmit(self, bd, previous, colored):
         bd.display_chars(self.char)
@@ -125,7 +128,7 @@ class Terminal:
         self.slave, self.master = pty.fork()
         if self.slave==0:
             os.environ["DISPLAY"]=""
-            os.environ["TERM"]="vt100"
+            os.environ["TERM"]="screen"
             os.execl(os.environ["SHELL"], "")
 
         self.term = os.fdopen(self.master, "r", 0)
@@ -205,7 +208,6 @@ class Terminal:
         arg = s[1:len(s)-1]
         unhandled=0
         self.last_wrapped=False
-        #self.debug("recv: "+s)
         if s.startswith("?"): # drop that ^^
             return
 
@@ -305,10 +307,10 @@ class Terminal:
             elif char=="\n":
                 self.new_line()
             elif ord(char) == ANSI_BACKSPACE:
-                #self.debug("Backspace.")
+                # back
                 self.cursor[0]-=1
-                self.display.setcell_compat(self.cursor[1],self.cursor[0],
-                    [" ", 0])
+                #self.display.setcell_compat(self.cursor[1],self.cursor[0],
+                #    [" ", 0])
             else:
                 #print "Unhandled character code:", ord(char)
                 pass
@@ -337,6 +339,13 @@ class Terminal:
                 pass
         else:
             self.delta_transmit()
+        
+    def stat_refresh(self):
+        self.status_print("Bytes: %sb/5s\tLatency: %s"
+            %(sum(self.stat_outbits), self.display.latency))
+        self.stat_outbits=self.stat_outbits[:len(self.stat_outbits)-1]
+        self.stat_outbits.insert(0, 0) 
+         
 
     def debug(self,message):
         if not self.debug_mode: return
@@ -346,11 +355,16 @@ class Terminal:
         self.debug_no+=1
 
     def status_print(self, text):
-        self.win_status.clear()
-        self.win_status.addstr(0,0,text)
+        self.status_string=" "*len(self.status_string)
+        self.win_status.addstr(0,0,self.status_string)
+        self.status_string=text
+        self.win_status.addstr(0,0,self.status_string)
         self.win_status.refresh()
 
     def curses_init(self, stdscr):
+        self.status_string=""
+        self.stat_interval=5
+        self.stat_outbits=[0]*int(self.stat_interval/self.cursor_blink_interval)
         curses.start_color()
         curses.noecho()
         curses.cbreak()
@@ -393,7 +407,6 @@ class Terminal:
         self.board.clear() 
         self.board.set_luminance(7)
         signal.signal(signal.SIGINT, self.handler_sigint)
-        self.status_print("Use Ctrl+W for command prompt")
         
         self.prompt_buffer=""
 
@@ -406,13 +419,14 @@ class Terminal:
             if timeout < 0: timeout=0
             try:
                 rl = select.select([sys.stdin, self.term], [], [], timeout)[0]
-            except KeyboardInterrupt:
-                pass # work is done by handler_sigint
-            except select.error: # Interrupted system call, esp. by SIGWINCH
-                continue
-
+            #except KeyboardInterrupt:
+            #    pass # work is done by handler_sigint
+            #except select.error: # Interrupted system call, esp. by SIGWINCH
+            #    continue
+            except: continue
             if rl==[]: # timeout for blinking cursor
                 self.last_blink=time.time()
+                self.stat_refresh()
                 self.cursor_refresh()
                 last_update=time.time()
                 if self.cursor_blink_state:
@@ -428,6 +442,7 @@ class Terminal:
                         if(ord(c)==23): # ^W
                             input_state="com"
                         else:
+                            self.debug("in %c"%c)
                             os.write(self.master,c)
                     else:
                         if c=='\n':
@@ -442,6 +457,7 @@ class Terminal:
                 elif r==self.term:
                     try:
                         c = os.read(self.master, 1)
+                        self.stat_outbits[0]+=1
                     except:
                         self.board.clear()
                         return # end of terminal life
@@ -450,7 +466,7 @@ class Terminal:
                     self.last_blink=0
 
             if(time.time()-last_update>(1.0/self.fps)):
-                #self.debug( "bump")
+                self.debug( "bump")
                 self.delta_transmit()
                 last_update=time.time()
             
