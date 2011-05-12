@@ -128,7 +128,7 @@ class Terminal:
         self.slave, self.master = pty.fork()
         if self.slave==0:
             os.environ["DISPLAY"]=""
-            os.environ["TERM"]="screen"
+            os.environ["TERM"]="vt100"
             os.execl(os.environ["SHELL"], "")
 
         self.term = os.fdopen(self.master, "r", 0)
@@ -341,8 +341,11 @@ class Terminal:
             self.delta_transmit()
         
     def stat_refresh(self):
-        self.status_print("Bytes: %sb/5s\tLatency: %s"
-            %(sum(self.stat_outbits), self.display.latency))
+        if not time.time()>self.last_stat+1:
+            return
+        self.last_stat=time.time()
+        self.status_print("Bytes: %sb/5s\tLatency: %.1fms"
+            %(sum(self.stat_outbits), self.display.latency*1000))
         self.stat_outbits=self.stat_outbits[:len(self.stat_outbits)-1]
         self.stat_outbits.insert(0, 0) 
          
@@ -355,13 +358,13 @@ class Terminal:
         self.debug_no+=1
 
     def status_print(self, text):
-        self.status_string=" "*len(self.status_string)
-        self.win_status.addstr(0,0,self.status_string)
+        self.win_status.addstr(0,0," "*2*len(self.status_string))
         self.status_string=text
         self.win_status.addstr(0,0,self.status_string)
         self.win_status.refresh()
 
     def curses_init(self, stdscr):
+        self.last_stat=time.time()
         self.status_string=""
         self.stat_interval=5
         self.stat_outbits=[0]*int(self.stat_interval/self.cursor_blink_interval)
@@ -371,7 +374,7 @@ class Terminal:
         curses.curs_set(0)
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)
         curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_RED)
-        curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_CYAN)
+        curses.init_pair(3, curses.COLOR_WHITE, curses.COLOR_BLACK)
         theight,twidth=stdscr.getmaxyx()
 
         if(self.debug_mode):
@@ -424,9 +427,9 @@ class Terminal:
             #except select.error: # Interrupted system call, esp. by SIGWINCH
             #    continue
             except: continue
+            self.stat_refresh()
             if rl==[]: # timeout for blinking cursor
                 self.last_blink=time.time()
-                self.stat_refresh()
                 self.cursor_refresh()
                 last_update=time.time()
                 if self.cursor_blink_state:
@@ -442,7 +445,6 @@ class Terminal:
                         if(ord(c)==23): # ^W
                             input_state="com"
                         else:
-                            self.debug("in %c"%c)
                             os.write(self.master,c)
                     else:
                         if c=='\n':
@@ -466,7 +468,6 @@ class Terminal:
                     self.last_blink=0
 
             if(time.time()-last_update>(1.0/self.fps)):
-                self.debug( "bump")
                 self.delta_transmit()
                 last_update=time.time()
             
