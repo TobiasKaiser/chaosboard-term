@@ -1,1 +1,4 @@
 Terminal-Emulator für ein Leuchtdiodenbrett-Unikat des CCCB.
+
+Ein bekannter Bug ist es, dass das Terminal nicht im X11-Terminal-Elumator
+RXVT funktioniert.

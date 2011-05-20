@@ -1,5 +1,4 @@
 #!/usr/bin/python
-
 import pty
 import os, sys
 import curses
@@ -15,12 +14,6 @@ import board
 import time
 import signal
 import getopt
-
-ANSI_ESC=27
-ANSI_CARRIAGE_RETURN=13
-ANSI_BACKSPACE=8
-
-PRINTABLE_CHARS=string.letters+string.digits+string.punctuation+" "
 
 class Buffer:
     def __init__(self):
@@ -128,7 +121,7 @@ class Terminal:
         self.slave, self.master = pty.fork()
         if self.slave==0:
             os.environ["DISPLAY"]=""
-            os.environ["TERM"]="vt100"
+            os.environ["TERM"]="xterm"
             os.execl(os.environ["SHELL"], "")
 
         self.term = os.fdopen(self.master, "r", 0)
@@ -153,9 +146,8 @@ class Terminal:
         # carriage return itself)
         self.last_wrapped=False
 
-    def connect(self, host, port):
-        self.board=board.Board(host, port)
-
+    def connect(self, host, port, dry_run=False):
+        self.board=board.Board(host, port, dry_run=dry_run)
     
     def handler_sigint(self, s, frame): # ^C received
         os.write(self.master, "\x03")
@@ -199,8 +191,6 @@ class Terminal:
             self.style_lum=self.style2lum_dict[col] 
         else:
             pass
-            #self.debug("UNHANDLED %i"%key)
-
         
     def process_escape_sequence(self, sequence):
         s = sequence[1:len(sequence)]
@@ -224,12 +214,11 @@ class Terminal:
                 try:
                     b=int(b)-1
                     e=int(e)-1
+                    self.scroll_range=[b, e]
                 except:
                     pass
-                self.scroll_range=[b, e]
             except:
                 self.scroll_range=[0, board.DSP_HEIGHT-1]
-#            self.debug("nu scroll range %a %a" %self.scroll_range)
         elif cmd=="h" and arg=="?25":
             self.cursor_visible=True
         elif cmd=="l" and arg=="?25":
@@ -241,7 +230,6 @@ class Terminal:
                 self.cursor[1]+=int(arg)
             except: pass
         elif cmd=="M": # scroll up 1 line
-            #self.debug("upscroll")
             self.display.scroll_up(self.scroll_range)
         elif cmd=="C": # move cursor forward
             try:
@@ -251,7 +239,8 @@ class Terminal:
         elif cmd=="D": # move cursor backward
             self.cursor[0]-=int(arg)
         elif cmd=="G":
-            self.cursor[0]=int(arg)
+            try: self.cursor[0]=int(arg)
+            except: pass
         elif cmd=="A": # move cursor UP
             if arg=="":
                 arg=1
@@ -290,23 +279,23 @@ class Terminal:
 
     def char_processor(self, char):
         if self.multichar_buffer=="":
-            if char in PRINTABLE_CHARS:
+            if char in string.letters+string.digits+string.punctuation+" ":
                 try:
                     self.display.setcell_compat(self.cursor[1],
-                        self.cursor[0], [char, self.style_lum])
+                        self.cursor[0], [char.encode("CP437"), self.style_lum])
                     self.cursor_incr()
                 except:
                     pass
-            elif ord(char)==ANSI_ESC:
+            elif char=="\x1b": # ANSI Escape
                 self.multichar_buffer+=char
-            elif ord(char) == ANSI_CARRIAGE_RETURN:
+            elif char=="\r":
                 if self.cursor[0]==0 and self.last_wrapped:
                     self.cursor[1]-=1
                     self.last_wrapped=False
                 self.cursor[0]=0
             elif char=="\n":
                 self.new_line()
-            elif ord(char) == ANSI_BACKSPACE:
+            elif char=="\b":
                 # back
                 self.cursor[0]-=1
                 #self.display.setcell_compat(self.cursor[1],self.cursor[0],
@@ -351,6 +340,7 @@ class Terminal:
          
 
     def debug(self,message):
+        message=str(message)
         if not self.debug_mode: return
         self.win_debug.scroll(-1)
         self.win_debug.addstr(0,0,str(self.debug_no)+' '+message)
@@ -407,6 +397,7 @@ class Terminal:
     def run(self, stdscr):
         self.curses_init(stdscr)
         self.status_print("Connecting...")
+        time.sleep(.5)
         self.board.clear() 
         self.board.set_luminance(7)
         signal.signal(signal.SIGINT, self.handler_sigint)
@@ -427,6 +418,7 @@ class Terminal:
             #except select.error: # Interrupted system call, esp. by SIGWINCH
             #    continue
             except: continue
+            #self.debug(self.scroll_range)
             self.stat_refresh()
             if rl==[]: # timeout for blinking cursor
                 self.last_blink=time.time()
@@ -480,9 +472,10 @@ def main():
     t=Terminal()
     port=board.NET_PORT
     host=board.NET_HOST
+    dry_run=False
     try:
         opts, args=getopt.gnu_getopt(sys.argv[1:],
-            "hcdp:", ("help", "colored", "debug", "port="))
+            "hcdp:y", ("help", "colored", "debug", "port=", "dry-run"))
     except getopt.GetoptError, err:
         print str(err)
         usage()
@@ -493,20 +486,13 @@ def main():
         usage()
         sys.exit(1)
     for o, a in opts:
-        if o in ("-h", "--help"):
-            usage()
-            return
-        if o in ("-c", "--colored"):
-            t.colored=True
-        if o in ("-p", "--port"):
-            port=a
-        if o in ("-d", "--debug"):
-            t.debug_mode=True
-        if o in ("-r", "--remote"):
-            host=a
-    t.connect(host, port)
+        if o in ("-h", "--help"): usage(); return
+        if o in ("-c", "--colored"): t.colored=True
+        if o in ("-p", "--port"): port=a
+        if o in ("-d", "--debug"): t.debug_mode=True
+        if o in ("-r", "--remote"): host=a
+        if o in ("-y", "--dry-run"): dry_run=True
+    t.connect(host, port, dry_run)
     curses.wrapper(t.run)
     
-
-if __name__=="__main__":
-    main()
+if __name__=="__main__": main()

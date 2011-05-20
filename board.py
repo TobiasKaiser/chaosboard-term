@@ -28,7 +28,8 @@ NET_HOST="172.23.42.120"
 
 
 class Board:
-    def __init__(self, host=NET_HOST, port=NET_PORT):
+    def __init__(self, host=NET_HOST, port=NET_PORT, dry_run=False):
+        self.dry_run=dry_run
         self.sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         self.host = (host, port)
         self.timeout = 3 # seconds
@@ -93,6 +94,7 @@ class Board:
 
     def send(self, command, x=0, y=0, width=0, height=0, data=""):
         """returns 0 if successful, 1 if timed out"""
+        if self.dry_run: return 0
         message= \
             struct.pack("HHHHH", command, x, y, width, height) \
             + data \
