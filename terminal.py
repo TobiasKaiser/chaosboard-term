@@ -76,8 +76,7 @@ class TermBuffer(Buffer):
         for i in range(board.DSP_WIDTH-cursor[0]):
             try:
                 self.setcell_compat(cursor[1], cursor[0]+i,[" ", board.LUM_MAX])
-            except:
-                pass
+            except: pass
     
     def scroll(self, scroll_range):
         # append new line
@@ -189,8 +188,6 @@ class Terminal:
         elif 30<=key<=37:
             col=key-30
             self.style_lum=self.style2lum_dict[col] 
-        else:
-            pass
         
     def process_escape_sequence(self, sequence):
         s = sequence[1:len(sequence)]
@@ -215,8 +212,7 @@ class Terminal:
                     b=int(b)-1
                     e=int(e)-1
                     self.scroll_range=[b, e]
-                except:
-                    pass
+                except: pass
             except:
                 self.scroll_range=[0, board.DSP_HEIGHT-1]
         elif cmd=="h" and arg=="?25":
@@ -255,15 +251,13 @@ class Terminal:
                         self.cursor=[0,0]
                     else:
                         self.cursor=[int(x)-1, int(y)-1]
-                except:
-                    pass
+                except: pass
         elif cmd=="J": # clear
             i=0
             if arg!="":
                 try:
                     i=int(arg)
-                except:
-                    pass
+                except: pass
             if i==1:
                 unhandled="Clear upwards"
             elif i==0:
@@ -284,8 +278,7 @@ class Terminal:
                     self.display.setcell_compat(self.cursor[1],
                         self.cursor[0], [char.encode("CP437"), self.style_lum])
                     self.cursor_incr()
-                except:
-                    pass
+                except: pass
             elif char=="\x1b": # ANSI Escape
                 self.multichar_buffer+=char
             elif char=="\r":
@@ -296,14 +289,9 @@ class Terminal:
             elif char=="\n":
                 self.new_line()
             elif char=="\b":
-                # back
                 self.cursor[0]-=1
-                #self.display.setcell_compat(self.cursor[1],self.cursor[0],
-                #    [" ", 0])
             else:
-                #print "Unhandled character code:", ord(char)
-                pass
-            #self.delta_transmit()
+                self.debug("Unknown char %02x"%ord(char))
         else:
             # process escape sequences
             self.multichar_buffer+=char
@@ -324,8 +312,7 @@ class Terminal:
                     self.visual_cursor)
                 self.delta_transmit()
                 self.display=temp_display
-            except:
-                pass
+            except: pass
         else:
             self.delta_transmit()
         
