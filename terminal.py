@@ -391,8 +391,6 @@ class Terminal:
         
         self.prompt_buffer=""
 
-        input_state="term"        
-
         last_update=time.time()
         self.last_blink=0
         while(True):
@@ -420,11 +418,7 @@ class Terminal:
             for r in rl:
                 if r==sys.stdin:
                     c = os.read(0,1)
-                    if input_state=="term":
-                        if(ord(c)==23): # ^W
-                            input_state="com"
-                        else:
-                            os.write(self.master,c)
+                    os.write(self.master,c)
                     else:
                         if c=='\n':
                             self.prompt_buffer=""
