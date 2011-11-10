@@ -376,8 +376,6 @@ class Terminal:
         self.win_term.bkgd(' ', curses.color_pair(1))
         self.win_term.border()
 
-        self.win_prompt=curses.newwin(1, twidth, theight-2, 0)
-
         self.win_status=curses.newwin(1, twidth, theight-1, 0)
         self.win_status.bkgd(' ', curses.color_pair(3))
 
@@ -389,7 +387,6 @@ class Terminal:
         self.board.set_luminance(7)
         signal.signal(signal.SIGINT, self.handler_sigint)
         
-        self.prompt_buffer=""
 
         last_update=time.time()
         self.last_blink=0
@@ -419,16 +416,6 @@ class Terminal:
                 if r==sys.stdin:
                     c = os.read(0,1)
                     os.write(self.master,c)
-                    else:
-                        if c=='\n':
-                            self.prompt_buffer=""
-                        else:
-                            self.prompt_buffer+=c
-                        self.win_prompt.clear()
-                        self.win_prompt.addstr(0,0, self.prompt_buffer)
-                        self.win_prompt.refresh()
-                        self.prompt_buffer
-                        
                 elif r==self.term:
                     try:
                         c = os.read(self.master, 1)

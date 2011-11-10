@@ -23,7 +23,7 @@ DSP_HEIGHT = 20
 DSP_WIDTH = 56
 
 NET_PORT=2342
-NET_HOST="172.23.42.120"
+NET_HOST="172.23.42.29"
 #NET_HOST="localhost"
 
 
@@ -32,8 +32,8 @@ class Board:
         self.dry_run=dry_run
         self.sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         self.host = (host, port)
-        self.timeout = 3 # seconds
-
+#        self.timeout = 3 # seconds
+        self.timeout=0.1
     def write(self, text, x=0, y=0, lum=-1):
         """Writes some string to board - use display_chars instead!"""
         if lum > -1: # -1 = dont change
@@ -100,6 +100,7 @@ class Board:
             + data \
             + struct.pack("b", 0)
         self.sock.sendto(message,self.host)
+        return 0
         r, w, x = select.select([self.sock], [], [],3)
         # reset has no answer
         if command in (CMD_HARDRESET, CMD_RESET):
