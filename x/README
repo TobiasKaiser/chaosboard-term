@@ -1,0 +1,4 @@
+You need:
+    vncviewer
+    xvfb
+    x11vnc
