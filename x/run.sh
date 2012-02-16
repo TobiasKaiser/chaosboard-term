@@ -1,8 +1,8 @@
 #!/bin/bash
 
 if [ $# != 1 ]; then
-    echo "Usage: $0 USER PROGRAM"
-    echo "Runs PROGRAM as USER in Xvfb."
+    echo "Usage: $0 PROGRAM"
+    echo "Runs PROGRAM in Xvfb."
     exit 1
 fi
 
@@ -20,7 +20,7 @@ while ! ls Xvfb_screen0 >/dev/null; do sleep .1; done
 PID_XDISP=$!
 
 sleep 2
-vncviewer localhost:5900
+vncviewer localhost:5900 -FullColor
 
 kill $PID_XDISP
 pkill -P $PID_XVFB_RUN

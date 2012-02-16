@@ -96,7 +96,7 @@ class Board:
         """returns 0 if successful, 1 if timed out"""
         if self.dry_run: return 0
         message= \
-            struct.pack("HHHHH", command, x, y, width, height) \
+            struct.pack("!HHHHH", command, x, y, width, height) \
             + data \
             + struct.pack("b", 0)
         self.sock.sendto(message,self.host)

@@ -35,11 +35,11 @@ void ledwand_send(const Ledwand *ledwand,
     uint8_t buf[LEDWAND_BUFSIZE];
 
     Request request;
-    request.cmd = cmd;
-    request.xpos = xpos;
-    request.ypos = ypos;
-    request.xsize = xsize;
-    request.ysize = ysize;
+    request.cmd = htons(cmd);
+    request.xpos = htons(xpos);
+    request.ypos = htons(ypos);
+    request.xsize = htons(xsize);
+    request.ysize = htons(ysize);
 
     int len = sizeof(request);
 
@@ -65,7 +65,7 @@ void ledwand_draw_buffer(const Ledwand *ledwand, const uint8_t *buf, const uint3
     do{
         ledwand_send(ledwand, LED_DRAW, step, LEDWAND_PARTSIZE, 0, 0, buf+step, step);
         step += LEDWAND_PARTSIZE;
-        usleep(500);
+        usleep(400);
     } while(--i);
 }
 
@@ -85,78 +85,43 @@ void ledwand_draw_image(const Ledwand *ledwand, uint8_t *buffer, const uint32_t 
     }
 
     uint32_t i = 0, j = 0;
+    static signed short tmpbuffer[LEDWAND_PIXEL_X * LEDWAND_PIXEL_Y+10000];
+    int16_t oldpixel = 0;
+    signed short diff = 0;
 
-/*    uint8_t tempbuf[((LEDWAND_PIXEL_X * LEDWAND_PIXEL_Y)/8)];
+    for(i=0; i < LEDWAND_PIXEL_X+1; ++i){
+        tmpbuffer[i] = buffer[i];
+    }
 
-    uint8_t oldpixel;
-    int16_t diff;
+    for(i=449; i < ((LEDWAND_PIXEL_X * (LEDWAND_PIXEL_Y-1))-1); ++i){
+        tmpbuffer[i] = buffer[i] * 9 - buffer[i-LEDWAND_PIXEL_X-1] - buffer[i-LEDWAND_PIXEL_X] - buffer[i-LEDWAND_PIXEL_X+1] - buffer[i-1] - buffer[i+1] - buffer[i+LEDWAND_PIXEL_X-1] - buffer[i+LEDWAND_PIXEL_X] - buffer[i+LEDWAND_PIXEL_X+1];
+    }
 
-    do{
-        oldpixel = buffer[i];
-        tempbuf[i>>3] |= (oldpixel > LEDWAND_BIAS) << (7-(i%8));
-        diff = (oldpixel > LEDWAND_BIAS) ? oldpixel - 255 : oldpixel;
-        buffer[i+1] += (uint8_t)(7 * diff / 16);
-        buffer[i+(LEDWAND_PIXEL_X)-1] += (uint8_t)(3 * diff / 16);
-        buffer[i+(LEDWAND_PIXEL_X)] += (uint8_t)(5 * diff / 16);
-        buffer[i+(LEDWAND_PIXEL_X)+1] += (uint8_t)(diff / 16);
-
-    }while((++i) <(LEDWAND_PIXEL_X * (LEDWAND_PIXEL_Y - 1)));
-
-    do{
-        oldpixel = buffer[i];
-        tempbuf[i>>3] |= (oldpixel > LEDWAND_BIAS) << (7-(i%8));
-        diff = (oldpixel > LEDWAND_BIAS) ? oldpixel - 255 : oldpixel;
-        buffer[i+1] += (uint8_t)(7 * diff / 16);
-
-    }while((++i) < ((LEDWAND_PIXEL_X * LEDWAND_PIXEL_Y)-1));*/
-
-    static signed short tmpbuffer[448*240+500];
-
-    //size_t *p1 = (size_t*)tmpbuffer;
-    //size_t *p2 = (size_t*)buffer;
-    for(i = 0; i < (448*240); i++){
-    /*for(i = 0; i < (448*240)/(sizeof(size_t)); i++){
-        p1[i] = p2[i];
-    }*/
+    for(i=(LEDWAND_PIXEL_X*(LEDWAND_PIXEL_Y-1)); i < (LEDWAND_PIXEL_X*LEDWAND_PIXEL_Y); ++i){
         tmpbuffer[i] = buffer[i];
     }
     bzero(buffer, buf_len);
 
-    int row = 0, column = 0;
-    int16_t oldpixel = 0;
-    uint8_t newpixel = 0;
-    signed short diff = 0;
-
-    /*do{
+    i = 0;
+    do{
         oldpixel = tmpbuffer[i];
-        buffer[i] |= (oldpixel > LEDWAND_BIAS) << (7-(column%8));
+        if(oldpixel > LEDWAND_BIAS){
+            buffer[i>>3] |= 1 << (7-(i%8));
+            diff = oldpixel - 255;
+        }
+        else{
+            diff = oldpixel;
+            buffer[i>>3] |= 0 << (7-(i%8));
+        }
+        tmpbuffer[i+1] += 7 * diff / 16;
+        tmpbuffer[i+LEDWAND_PIXEL_X-1] += 3 * diff / 16;
+        tmpbuffer[i+LEDWAND_PIXEL_X] += 5 * diff / 16;
+        tmpbuffer[i+LEDWAND_PIXEL_X+1] += 1 * diff / 16;
 
-    }while((++i) < (LEDWAND_PIXEL_X * (LEDWAND_PIXEL_Y - 1)));
-    */
+    }while((++i) < LEDWAND_PIXEL_X*LEDWAND_PIXEL_Y);
 
-	for (row = 0; row < 240; row++)
-	{
-		for (column = 0; column < 448; column++)
-		{
-			oldpixel = tmpbuffer[row*448+column];
-
-			newpixel = (oldpixel > LEDWAND_BIAS) << (7-(column%8));
-			buffer[row*56+column/8] |= newpixel;
-
-			newpixel = (oldpixel > LEDWAND_BIAS) ? 255 : 0;
-
-			diff = oldpixel - newpixel;
-
-			// floyd steinberg dithering
-			tmpbuffer[row*448+(column+1)] += 7 * diff / 16;
-            tmpbuffer[(row+1)*448+(column-1)] += 3 * diff / 16;
-			tmpbuffer[(row+1)*448+column] += 5 * diff / 16;
-			tmpbuffer[(row+1)*448+(column+1)] += 1 * diff / 16;
-		}
-	}
-
-    for(i = 0, j = 0; i < 448*29; i+= 448+4*56, j+= 448){
-        ledwand_send(ledwand, 18, j, 448, 0, 0, &buffer[i], 448);
+    for(i = 0, j = 0; i < LEDWAND_PIXEL_X*(LEDWAND_MODULE_Y+9); i+= LEDWAND_PIXEL_X+3*LEDWAND_MODULE_X, j+= LEDWAND_PIXEL_X){
+        ledwand_send(ledwand, 18, j, LEDWAND_PIXEL_X, 0, 0, &buffer[i], LEDWAND_PIXEL_X);
         usleep(400);
     }
 }

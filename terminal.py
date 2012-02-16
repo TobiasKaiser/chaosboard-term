@@ -120,7 +120,7 @@ class Terminal:
         self.slave, self.master = pty.fork()
         if self.slave==0:
             os.environ["DISPLAY"]=""
-            os.environ["TERM"]="xterm"
+            os.environ["TERM"]="vt100"
             os.execl(os.environ["SHELL"], "")
 
         self.term = os.fdopen(self.master, "r", 0)

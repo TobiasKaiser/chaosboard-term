@@ -55,9 +55,9 @@ int main(int argc, char *argv[]) {
 
     for(;;) {
         update_frame();
-        printf(".");
         fflush(stdout);
-        usleep(1000000/30);
+        //usleep(1000000/30);
+        
     }
     munmap(xwd_file, xwd_size);
     return 0; 
